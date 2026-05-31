@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Işıklar Sön | Yapay Zeka Oyunları</title>
+  <link rel="stylesheet" href="../assets/css/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💡</text></svg>" />
+  <style>
+    .lights { display: grid; gap: 10px; width: min(86vw, 360px); }
+    .light {
+      aspect-ratio: 1; border-radius: 14px; cursor: pointer; border: 1px solid var(--card-border);
+      background: #1e293b; transition: background 0.15s, box-shadow 0.15s, transform 0.1s;
+    }
+    .light:hover { transform: scale(1.04); }
+    .light.on {
+      background: radial-gradient(circle at 30% 30%, #fde68a, #f59e0b);
+      box-shadow: 0 0 18px rgba(245, 158, 11, 0.7);
+    }
+    .light.hint { outline: 3px dashed #34d399; outline-offset: -4px; }
+    .sizerow { display: flex; gap: 10px; justify-content: center; }
+    .sizerow button {
+      padding: 8px 16px; border-radius: 999px; border: 1px solid var(--card-border);
+      background: var(--card); color: var(--text-dim); cursor: pointer; font-weight: 600;
+    }
+    .sizerow button.active { background: rgba(99,102,241,0.3); color: #fff; border-color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="topbar">
+      <a class="back-btn" href="../index.html">← Ana Sayfa</a>
+      <h1 class="game-title">💡 Işıklar Sön</h1>
+      <span></span>
+    </div>
+
+    <div class="game-layout with-side">
+      <div class="panel">
+        <div class="stage">
+          <div class="sizerow" id="sizerow">
+            <button data-n="3">3×3</button>
+            <button data-n="4" class="active">4×4</button>
+            <button data-n="5">5×5</button>
+          </div>
+          <div class="status info" id="status">Tüm ışıkları söndür!</div>
+          <div class="stat-row">
+            <span>Hamle: <b id="moves">0</b></span>
+            <span>Açık: <b id="on">0</b></span>
+          </div>
+          <div class="lights" id="board"></div>
+          <div class="controls">
+            <button class="btn" id="newBtn">🔀 Yeni Bulmaca</button>
+            <button class="btn accent" id="hintBtn">💡 İpucu</button>
+            <button class="btn pink" id="solveBtn">🤖 Çöz</button>
+          </div>
+        </div>
+      </div>
+
+      <aside class="panel">
+        <h3>Nasıl Oynanır?</h3>
+        <ul>
+          <li>Bir ışığa tıkladığında o ışık <b>ve 4 komşusu</b> (üst/alt/sağ/sol) durum değiştirir.</li>
+          <li>Amacın: <b>tüm ışıkları kapatmak</b>.</li>
+          <li>İpucu, bir sonraki doğru hamleyi yeşil çerçeveyle gösterir.</li>
+        </ul>
+        <div class="hint-box">
+          <b>🧠 YZ Bağlantısı:</b> Bu bir <b>durum uzayı arama</b> problemidir; aynı zamanda
+          mod-2 (ikili) <b>doğrusal denklem sistemiyle</b> çözülür. "Çöz" düğmesi Gauss eliminasyonu
+          benzeri bir yöntemle çözüm hamlelerini bulur.
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    let N = 4, grid, moves, solutionPress;
+    const boardEl = document.getElementById('board');
+    const statusEl = document.getElementById('status');
+    const movesEl = document.getElementById('moves');
+    const onEl = document.getElementById('on');
+
+    function toggle(g, r, c) {
+      [[0,0],[-1,0],[1,0],[0,-1],[0,1]].forEach(([dr, dc]) => {
+        const nr = r + dr, nc = c + dc;
+        if (nr >= 0 && nr < N && nc >= 0 && nc < N) g[nr][nc] ^= 1;
+      });
+    }
+
+    // Solve via Gaussian elimination over GF(2). Returns array of presses (r*N+c) or null.
+    function computeSolution() {
+      const size = N * N;
+      // build matrix: each variable (press) affects which lights
+      const A = [];
+      for (let light = 0; light < size; light++) {
+        A.push(new Array(size + 1).fill(0));
+      }
+      for (let v = 0; v < size; v++) {
+        const r = Math.floor(v / N), c = v % N;
+        [[0,0],[-1,0],[1,0],[0,-1],[0,1]].forEach(([dr, dc]) => {
+          const nr = r + dr, nc = c + dc;
+          if (nr >= 0 && nr < N && nc >= 0 && nc < N) A[nr*N+nc][v] = 1;
+        });
+      }
+      for (let light = 0; light < size; light++) A[light][size] = grid[Math.floor(light/N)][light%N];
+      // Gaussian elimination
+      let row = 0;
+      const where = new Array(size).fill(-1);
+      for (let col = 0; col < size && row < size; col++) {
+        let sel = -1;
+        for (let i = row; i < size; i++) if (A[i][col]) { sel = i; break; }
+        if (sel === -1) continue;
+        [A[sel], A[row]] = [A[row], A[sel]];
+        where[col] = row;
+        for (let i = 0; i < size; i++) if (i !== row && A[i][col]) {
+          for (let j = col; j <= size; j++) A[i][j] ^= A[row][j];
+        }
+        row++;
+      }
+      const x = new Array(size).fill(0);
+      for (let col = 0; col < size; col++) if (where[col] !== -1) x[col] = A[where[col]][size];
+      // verify
+      const test = grid.map(r => [...r]);
+      for (let v = 0; v < size; v++) if (x[v]) toggle(test, Math.floor(v/N), v%N);
+      const ok = test.every(r => r.every(c => c === 0));
+      return ok ? x : null;
+    }
+
+    function render(hintIdx) {
+      boardEl.style.gridTemplateColumns = `repeat(${N}, 1fr)`;
+      boardEl.innerHTML = '';
+      let onCount = 0;
+      for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+        const d = document.createElement('div');
+        d.className = 'light' + (grid[r][c] ? ' on' : '');
+        if (hintIdx === r * N + c) d.classList.add('hint');
+        if (grid[r][c]) onCount++;
+        d.onclick = () => press(r, c);
+        boardEl.appendChild(d);
+      }
+      onEl.textContent = onCount;
+      return onCount;
+    }
+
+    function press(r, c) {
+      toggle(grid, r, c);
+      moves++; movesEl.textContent = moves;
+      const onCount = render();
+      if (onCount === 0) {
+        statusEl.className = 'status win';
+        statusEl.textContent = `🏆 Tüm ışıklar söndü! ${moves} hamlede.`;
+      } else {
+        statusEl.className = 'status info';
+        statusEl.textContent = 'Devam et...';
+      }
+    }
+
+    function newGame() {
+      grid = Array.from({ length: N }, () => Array(N).fill(0));
+      // scramble by random presses (guarantees solvable)
+      const k = N * N;
+      for (let i = 0; i < k; i++) {
+        if (Math.random() < 0.5) toggle(grid, Math.floor(Math.random()*N), Math.floor(Math.random()*N));
+      }
+      if (grid.every(r => r.every(c => c === 0))) toggle(grid, 0, 0);
+      moves = 0; movesEl.textContent = '0';
+      statusEl.className = 'status info'; statusEl.textContent = 'Tüm ışıkları söndür!';
+      render();
+    }
+
+    document.getElementById('newBtn').onclick = newGame;
+    document.getElementById('hintBtn').onclick = () => {
+      const sol = computeSolution();
+      if (!sol) { statusEl.textContent = 'Çözüm bulunamadı.'; return; }
+      const idx = sol.findIndex(v => v === 1);
+      if (idx === -1) { statusEl.textContent = 'Zaten çözülmüş görünüyor!'; return; }
+      render(idx);
+      statusEl.className = 'status info';
+      statusEl.textContent = '💡 Yeşil ışığa tıkla.';
+    };
+    document.getElementById('solveBtn').onclick = () => {
+      const sol = computeSolution();
+      if (!sol) { statusEl.textContent = 'Çözüm yok.'; return; }
+      sol.forEach((v, i) => { if (v) toggle(grid, Math.floor(i/N), i%N); });
+      render();
+      statusEl.className = 'status info';
+      statusEl.textContent = '🤖 Doğrusal cebir ile çözüldü!';
+    };
+    document.querySelectorAll('#sizerow button').forEach(b => b.onclick = () => {
+      N = Number(b.dataset.n);
+      document.querySelectorAll('#sizerow button').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      newGame();
+    });
+
+    newGame();
+  </script>
+</body>
+</html>

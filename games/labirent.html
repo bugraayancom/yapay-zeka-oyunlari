@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Labirent Kaçışı | Yapay Zeka Oyunları</title>
+  <link rel="stylesheet" href="../assets/css/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧭</text></svg>" />
+  <style>
+    .maze {
+      display: grid;
+      gap: 0;
+      background: #0b1220;
+      padding: 8px;
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      touch-action: none;
+    }
+    .cell { width: 22px; height: 22px; }
+    .cell.wall { background: #1e293b; }
+    .cell.path { background: #cbd5e1; }
+    .cell.start { background: var(--accent-3); }
+    .cell.goal { background: var(--accent-2); }
+    .cell.player { background: #fbbf24; border-radius: 50%; box-shadow: 0 0 10px #fbbf24; }
+    .cell.trail { background: #a5b4fc; }
+    .cell.solution { background: #34d399; }
+    .dpad {
+      display: grid;
+      grid-template-columns: repeat(3, 56px);
+      grid-template-rows: repeat(3, 56px);
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .dpad button {
+      font-size: 1.4rem; border: none; border-radius: 12px; cursor: pointer;
+      background: var(--card); border: 1px solid var(--card-border); color: var(--text);
+    }
+    .dpad button:hover { background: rgba(99,102,241,0.25); }
+    .dpad .up { grid-column: 2; grid-row: 1; }
+    .dpad .left { grid-column: 1; grid-row: 2; }
+    .dpad .down { grid-column: 2; grid-row: 3; }
+    .dpad .right { grid-column: 3; grid-row: 2; }
+    @media (max-width: 520px) { .cell { width: 15px; height: 15px; } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="topbar">
+      <a class="back-btn" href="../index.html">← Ana Sayfa</a>
+      <h1 class="game-title">🧭 Labirent Kaçışı</h1>
+      <span></span>
+    </div>
+
+    <div class="game-layout with-side">
+      <div class="panel">
+        <div class="stage">
+          <div class="status info" id="status">Sarı topu 🟡 pembe çıkışa 🟪 ulaştır!</div>
+          <div class="stat-row">
+            <span>Adım: <b id="moves">0</b></span>
+            <span>En kısa: <b id="optimal">?</b></span>
+          </div>
+          <div class="maze" id="maze"></div>
+          <div class="dpad">
+            <button class="up" data-dir="up">▲</button>
+            <button class="left" data-dir="left">◀</button>
+            <button class="down" data-dir="down">▼</button>
+            <button class="right" data-dir="right">▶</button>
+          </div>
+          <div class="controls">
+            <button class="btn" id="newBtn">🔀 Yeni Labirent</button>
+            <button class="btn accent" id="solveBtn">🤖 Çözümü Göster</button>
+            <button class="btn secondary" id="resetBtn">↺ Başa Dön</button>
+          </div>
+        </div>
+      </div>
+
+      <aside class="panel">
+        <h3>Nasıl Oynanır?</h3>
+        <ul>
+          <li>Klavyede ok tuşları veya WASD ile, ya da alttaki tuşlarla hareket et.</li>
+          <li>Duvarlardan geçemezsin.</li>
+          <li>Sarı topu pembe çıkışa götür.</li>
+          <li>Mümkün olan en az adımla bitirmeye çalış!</li>
+        </ul>
+        <div class="hint-box">
+          <b>🧠 YZ Bağlantısı:</b> Yapay zeka, labirentte yolu <b>arama algoritmalarıyla</b> bulur.
+          "Çözümü Göster" düğmesi <b>BFS (Genişlik Öncelikli Arama)</b> ile bulunan en kısa yolu çizer —
+          bu, GPS navigasyonunun da temelidir.
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    const ROWS = 21, COLS = 21;
+    let grid, player, start, goal, moves, solved;
+    const mazeEl = document.getElementById('maze');
+    const statusEl = document.getElementById('status');
+    const movesEl = document.getElementById('moves');
+    const optimalEl = document.getElementById('optimal');
+
+    function generateMaze() {
+      // 1 = wall, 0 = path
+      grid = Array.from({ length: ROWS }, () => Array(COLS).fill(1));
+      function carve(r, c) {
+        grid[r][c] = 0;
+        const dirs = [[-2,0],[2,0],[0,-2],[0,2]].sort(() => Math.random() - 0.5);
+        for (const [dr, dc] of dirs) {
+          const nr = r + dr, nc = c + dc;
+          if (nr > 0 && nr < ROWS-1 && nc > 0 && nc < COLS-1 && grid[nr][nc] === 1) {
+            grid[r + dr/2][c + dc/2] = 0;
+            carve(nr, nc);
+          }
+        }
+      }
+      carve(1, 1);
+      start = { r: 1, c: 1 };
+      goal = { r: ROWS - 2, c: COLS - 2 };
+      grid[goal.r][goal.c] = 0;
+    }
+
+    function bfs() {
+      const q = [start];
+      const prev = {};
+      const seen = new Set([start.r + ',' + start.c]);
+      while (q.length) {
+        const cur = q.shift();
+        if (cur.r === goal.r && cur.c === goal.c) break;
+        for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+          const nr = cur.r + dr, nc = cur.c + dc, key = nr + ',' + nc;
+          if (nr>=0 && nr<ROWS && nc>=0 && nc<COLS && grid[nr][nc]===0 && !seen.has(key)) {
+            seen.add(key); prev[key] = cur.r + ',' + cur.c; q.push({r:nr, c:nc});
+          }
+        }
+      }
+      const path = []; let key = goal.r + ',' + goal.c;
+      while (key) { const [r,c] = key.split(',').map(Number); path.push({r,c}); key = prev[key]; }
+      return path.reverse();
+    }
+
+    function render(extra) {
+      mazeEl.style.gridTemplateColumns = `repeat(${COLS}, 1fr)`;
+      mazeEl.innerHTML = '';
+      const solSet = new Set((extra || []).map(p => p.r + ',' + p.c));
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const d = document.createElement('div');
+          d.className = 'cell ' + (grid[r][c] === 1 ? 'wall' : 'path');
+          if (solSet.has(r + ',' + c)) d.className = 'cell solution';
+          if (r === goal.r && c === goal.c) d.className = 'cell goal';
+          if (r === player.r && c === player.c) d.className = 'cell player';
+          mazeEl.appendChild(d);
+        }
+      }
+    }
+
+    function move(dir) {
+      if (solved) return;
+      const delta = { up:[-1,0], down:[1,0], left:[0,-1], right:[0,1] }[dir];
+      const nr = player.r + delta[0], nc = player.c + delta[1];
+      if (nr<0||nr>=ROWS||nc<0||nc>=COLS||grid[nr][nc]===1) return;
+      player = { r: nr, c: nc };
+      moves++; movesEl.textContent = moves;
+      render();
+      if (player.r === goal.r && player.c === goal.c) {
+        solved = true;
+        const opt = bfs().length - 1;
+        statusEl.className = 'status win';
+        statusEl.textContent = moves === opt ? `🏆 Mükemmel! En kısa yolla (${moves} adım) çıktın!` : `🎉 Çıktın! ${moves} adımda. (En kısa: ${opt})`;
+      }
+    }
+
+    function newGame() {
+      generateMaze();
+      player = { ...start };
+      moves = 0; solved = false;
+      movesEl.textContent = '0';
+      optimalEl.textContent = bfs().length - 1;
+      statusEl.className = 'status info';
+      statusEl.textContent = 'Sarı topu 🟡 pembe çıkışa 🟪 ulaştır!';
+      render();
+    }
+
+    document.getElementById('newBtn').onclick = newGame;
+    document.getElementById('resetBtn').onclick = () => {
+      player = { ...start }; moves = 0; solved = false;
+      movesEl.textContent = '0';
+      statusEl.className = 'status info';
+      statusEl.textContent = 'Tekrar dene!';
+      render();
+    };
+    document.getElementById('solveBtn').onclick = () => {
+      const path = bfs();
+      render(path);
+      solved = true;
+      statusEl.className = 'status info';
+      statusEl.textContent = `🤖 BFS ile bulunan en kısa yol: ${path.length - 1} adım`;
+    };
+    document.querySelectorAll('.dpad button').forEach(b => b.onclick = () => move(b.dataset.dir));
+    document.addEventListener('keydown', e => {
+      const map = { ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right', w:'up', s:'down', a:'left', d:'right' };
+      if (map[e.key]) { e.preventDefault(); move(map[e.key]); }
+    });
+
+    newGame();
+  </script>
+</body>
+</html>

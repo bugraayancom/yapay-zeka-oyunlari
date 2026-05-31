@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>XOX: Yapay Zekaya Karşı | Yapay Zeka Oyunları</title>
+  <link rel="stylesheet" href="../assets/css/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⭕</text></svg>" />
+  <style>
+    .ttt {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+      width: min(86vw, 340px);
+    }
+    .tcell {
+      aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+      font-size: clamp(2.4rem, 14vw, 4rem); font-weight: 800; cursor: pointer;
+      background: var(--card); border: 1px solid var(--card-border); border-radius: 16px;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .tcell:hover { background: rgba(99,102,241,0.18); }
+    .tcell.x { color: #60a5fa; }
+    .tcell.o { color: #f472b6; }
+    .tcell.win { background: rgba(34,197,94,0.25); animation: pop 0.3s; }
+    .diffrow { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+    .diffrow button {
+      padding: 8px 16px; border-radius: 999px; border: 1px solid var(--card-border);
+      background: var(--card); color: var(--text-dim); cursor: pointer; font-weight: 600;
+    }
+    .diffrow button.active { background: rgba(99,102,241,0.3); color: #fff; border-color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="topbar">
+      <a class="back-btn" href="../index.html">← Ana Sayfa</a>
+      <h1 class="game-title">❌⭕ XOX: Yapay Zekaya Karşı</h1>
+      <span></span>
+    </div>
+
+    <div class="game-layout with-side">
+      <div class="panel">
+        <div class="stage">
+          <div class="diffrow" id="diffrow">
+            <button data-d="easy">😊 Kolay</button>
+            <button data-d="medium">🙂 Orta</button>
+            <button data-d="hard" class="active">😈 İmkansız</button>
+          </div>
+          <div class="status info" id="status">Sen ❌, yapay zeka ⭕. Sen başla!</div>
+          <div class="ttt" id="board"></div>
+          <div class="stat-row">
+            <span>Sen: <b id="wp">0</b></span>
+            <span>YZ: <b id="wa">0</b></span>
+            <span>Berabere: <b id="wd">0</b></span>
+          </div>
+          <div class="controls">
+            <button class="btn" id="newBtn">🔄 Yeni Oyun</button>
+          </div>
+        </div>
+      </div>
+
+      <aside class="panel">
+        <h3>Nasıl Oynanır?</h3>
+        <ul>
+          <li>Sen ❌'sin, boş bir kareye tıkla.</li>
+          <li>Yatay, dikey veya çapraz 3'lü yaparsan kazanırsın.</li>
+          <li>"İmkansız" modda yapay zekayı yenemezsin — en iyisi berabere!</li>
+        </ul>
+        <div class="hint-box">
+          <b>🧠 YZ Bağlantısı:</b> Yapay zeka <b>Minimax</b> algoritmasını kullanır.
+          Tüm olası hamleleri bir <b>oyun ağacında</b> en sona kadar düşünür ve kendisi için
+          en iyi, senin için en kötü hamleyi seçer. Bu yüzden mükemmel oynar.
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    let board, gameOver, difficulty = 'hard';
+    const wins = { p: 0, a: 0, d: 0 };
+    const LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+    const boardEl = document.getElementById('board');
+    const statusEl = document.getElementById('status');
+
+    function winner(b) {
+      for (const [a,c,d] of LINES) if (b[a] && b[a] === b[c] && b[a] === b[d]) return { who: b[a], line: [a,c,d] };
+      if (b.every(x => x)) return { who: 'draw' };
+      return null;
+    }
+
+    function minimax(b, isAI, depth) {
+      const w = winner(b);
+      if (w) {
+        if (w.who === 'O') return 10 - depth;
+        if (w.who === 'X') return depth - 10;
+        return 0;
+      }
+      const scores = [];
+      for (let i = 0; i < 9; i++) {
+        if (!b[i]) {
+          b[i] = isAI ? 'O' : 'X';
+          scores.push(minimax(b, !isAI, depth + 1));
+          b[i] = '';
+        }
+      }
+      return isAI ? Math.max(...scores) : Math.min(...scores);
+    }
+
+    function bestMove(b) {
+      let best = -Infinity, move = -1;
+      for (let i = 0; i < 9; i++) {
+        if (!b[i]) {
+          b[i] = 'O';
+          const s = minimax(b, false, 0);
+          b[i] = '';
+          if (s > best) { best = s; move = i; }
+        }
+      }
+      return move;
+    }
+
+    function randomMove(b) {
+      const empty = b.map((v,i) => v ? -1 : i).filter(i => i >= 0);
+      return empty[Math.floor(Math.random() * empty.length)];
+    }
+
+    function aiMove() {
+      let idx;
+      if (difficulty === 'easy') idx = randomMove(board);
+      else if (difficulty === 'medium') idx = Math.random() < 0.5 ? randomMove(board) : bestMove(board);
+      else idx = bestMove(board);
+      board[idx] = 'O';
+      render();
+      finishCheck();
+    }
+
+    function render(winLine) {
+      boardEl.innerHTML = '';
+      board.forEach((v, i) => {
+        const d = document.createElement('div');
+        d.className = 'tcell' + (v === 'X' ? ' x' : v === 'O' ? ' o' : '');
+        if (winLine && winLine.includes(i)) d.classList.add('win');
+        d.textContent = v === 'X' ? '✕' : v === 'O' ? '◯' : '';
+        d.onclick = () => play(i);
+        boardEl.appendChild(d);
+      });
+    }
+
+    function finishCheck() {
+      const w = winner(board);
+      if (!w) return false;
+      gameOver = true;
+      if (w.who === 'X') { wins.p++; statusEl.className='status win'; statusEl.textContent='🎉 Kazandın!'; }
+      else if (w.who === 'O') { wins.a++; statusEl.className='status lose'; statusEl.textContent='🤖 Yapay zeka kazandı!'; }
+      else { wins.d++; statusEl.className='status info'; statusEl.textContent='🤝 Berabere!'; }
+      render(w.line);
+      document.getElementById('wp').textContent = wins.p;
+      document.getElementById('wa').textContent = wins.a;
+      document.getElementById('wd').textContent = wins.d;
+      return true;
+    }
+
+    function play(i) {
+      if (gameOver || board[i]) return;
+      board[i] = 'X';
+      render();
+      if (finishCheck()) return;
+      setTimeout(aiMove, 250);
+    }
+
+    function newGame() {
+      board = Array(9).fill('');
+      gameOver = false;
+      statusEl.className = 'status info';
+      statusEl.textContent = 'Sen ❌, yapay zeka ⭕. Sen başla!';
+      render();
+    }
+
+    document.getElementById('newBtn').onclick = newGame;
+    document.querySelectorAll('#diffrow button').forEach(b => b.onclick = () => {
+      difficulty = b.dataset.d;
+      document.querySelectorAll('#diffrow button').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      newGame();
+    });
+
+    newGame();
+  </script>
+</body>
+</html>

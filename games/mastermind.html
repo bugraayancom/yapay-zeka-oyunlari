@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mastermind: Renk Avı | Yapay Zeka Oyunları</title>
+  <link rel="stylesheet" href="../assets/css/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>" />
+  <style>
+    .mmwrap { display: flex; gap: 28px; flex-wrap: wrap; justify-content: center; align-items: flex-start; }
+    .rows { display: flex; flex-direction: column-reverse; gap: 8px; }
+    .row { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 12px; background: rgba(15,23,42,0.5); }
+    .row.active { background: rgba(99,102,241,0.18); border: 1px solid rgba(99,102,241,0.4); }
+    .pegs { display: flex; gap: 8px; }
+    .peg {
+      width: 36px; height: 36px; border-radius: 50%; background: #1e293b;
+      border: 2px solid #334155; cursor: pointer; transition: transform 0.1s;
+    }
+    .peg:hover { transform: scale(1.08); }
+    .feedback { display: grid; grid-template-columns: repeat(2, 12px); gap: 4px; width: 28px; }
+    .fb { width: 12px; height: 12px; border-radius: 50%; background: #0b1220; }
+    .fb.black { background: #f8fafc; }
+    .fb.white { background: #64748b; }
+    .picker { display: flex; flex-direction: column; gap: 12px; align-items: center; }
+    .colors { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .cbtn {
+      width: 42px; height: 42px; border-radius: 50%; cursor: pointer; border: 3px solid transparent;
+      transition: transform 0.12s, border-color 0.12s;
+    }
+    .cbtn:hover { transform: scale(1.12); }
+    .cbtn.active { border-color: #fff; transform: scale(1.15); }
+    .legend { font-size: 0.82rem; color: var(--text-dim); }
+    .legend b.black { color: #f8fafc; } .legend b.white { color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="topbar">
+      <a class="back-btn" href="../index.html">← Ana Sayfa</a>
+      <h1 class="game-title">🎯 Mastermind: Renk Avı</h1>
+      <span></span>
+    </div>
+
+    <div class="game-layout with-side">
+      <div class="panel">
+        <div class="stage">
+          <div class="status info" id="status">Gizli 4 renkli diziyi tahmin et!</div>
+          <div class="stat-row"><span>Kalan deneme: <b id="left">10</b></span></div>
+          <div class="mmwrap">
+            <div class="rows" id="rows"></div>
+            <div class="picker">
+              <div class="colors" id="colors"></div>
+              <button class="btn" id="guessBtn">✓ Tahmin Et</button>
+              <button class="btn secondary" id="clearRow">✕ Satırı Temizle</button>
+              <div class="legend">
+                <span>⚫ <b class="black">Beyaz</b>: doğru renk + doğru yer</span><br>
+                <span>⚪ <b class="white">Gri</b>: doğru renk, yanlış yer</span>
+              </div>
+            </div>
+          </div>
+          <div class="controls">
+            <button class="btn pink" id="newBtn">🔄 Yeni Oyun</button>
+            <button class="btn accent" id="aiBtn">🤖 YZ Tahmini</button>
+          </div>
+        </div>
+      </div>
+
+      <aside class="panel">
+        <h3>Nasıl Oynanır?</h3>
+        <ul>
+          <li>Bilgisayar 4 renkli gizli bir dizi seçti (renkler tekrarlanabilir).</li>
+          <li>Bir renk seç, sonra sıradaki satırdaki dairelere tıklayarak yerleştir.</li>
+          <li>"Tahmin Et"e bas. Sağdaki ipuçları: <b>beyaz</b> = doğru renk & yer, <b>gri</b> = doğru renk yanlış yer.</li>
+          <li>10 denemede gizli diziyi çöz!</li>
+        </ul>
+        <div class="hint-box">
+          <b>🧠 YZ Bağlantısı:</b> Bu bir <b>çıkarım (tümdengelim)</b> problemidir.
+          "YZ Tahmini" düğmesi, ipuçlarıyla <b>tutarlı olan tüm olasılıkları</b> eler ve
+          kalanlardan birini seçer — bu, Knuth'un ünlü Mastermind algoritmasının basitleştirilmiş halidir.
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    const PALETTE = ['#ef4444','#3b82f6','#22c55e','#f59e0b','#a855f7','#14b8a6'];
+    const LEN = 4, MAX = 10;
+    let secret, rowGuesses, currentRow, selectedColor, gameOver;
+
+    const rowsEl = document.getElementById('rows');
+    const statusEl = document.getElementById('status');
+    const leftEl = document.getElementById('left');
+
+    function randomCode() {
+      return Array.from({ length: LEN }, () => Math.floor(Math.random() * PALETTE.length));
+    }
+
+    function score(guess, code) {
+      let black = 0, white = 0;
+      const g = [...guess], c = [...code];
+      for (let i = 0; i < LEN; i++) if (g[i] === c[i]) { black++; g[i] = c[i] = -1; }
+      for (let i = 0; i < LEN; i++) {
+        if (g[i] === -1) continue;
+        const j = c.indexOf(g[i]);
+        if (j !== -1) { white++; c[j] = -2; }
+      }
+      return { black, white };
+    }
+
+    function buildColors() {
+      const el = document.getElementById('colors'); el.innerHTML = '';
+      PALETTE.forEach((c, i) => {
+        const b = document.createElement('div');
+        b.className = 'cbtn' + (i === selectedColor ? ' active' : '');
+        b.style.background = c;
+        b.onclick = () => { selectedColor = i; buildColors(); };
+        el.appendChild(b);
+      });
+    }
+
+    function render() {
+      rowsEl.innerHTML = '';
+      for (let r = 0; r < MAX; r++) {
+        const row = document.createElement('div');
+        row.className = 'row' + (r === currentRow && !gameOver ? ' active' : '');
+        const pegs = document.createElement('div'); pegs.className = 'pegs';
+        for (let i = 0; i < LEN; i++) {
+          const p = document.createElement('div'); p.className = 'peg';
+          const val = rowGuesses[r][i];
+          if (val >= 0) p.style.background = PALETTE[val];
+          if (r === currentRow && !gameOver) p.onclick = () => { rowGuesses[r][i] = selectedColor; render(); };
+          pegs.appendChild(p);
+        }
+        row.appendChild(pegs);
+        const fb = document.createElement('div'); fb.className = 'feedback';
+        const sc = rowGuesses[r].fbScore;
+        for (let k = 0; k < LEN; k++) {
+          const d = document.createElement('div'); d.className = 'fb';
+          if (sc) { if (k < sc.black) d.classList.add('black'); else if (k < sc.black + sc.white) d.classList.add('white'); }
+          fb.appendChild(d);
+        }
+        row.appendChild(fb);
+        rowsEl.appendChild(row);
+      }
+    }
+
+    function guess() {
+      if (gameOver) return;
+      const g = rowGuesses[currentRow];
+      if (g.some(v => v < 0)) { statusEl.className='status info'; statusEl.textContent='Önce 4 dairenin hepsini doldur.'; return; }
+      const sc = score(g, secret);
+      g.fbScore = sc;
+      if (sc.black === LEN) {
+        gameOver = true; render();
+        statusEl.className = 'status win';
+        statusEl.textContent = `🏆 Buldun! ${currentRow + 1} denemede.`;
+        return;
+      }
+      currentRow++;
+      leftEl.textContent = MAX - currentRow;
+      if (currentRow >= MAX) {
+        gameOver = true; render();
+        statusEl.className = 'status lose';
+        statusEl.textContent = '😵 Denemeler bitti! Gizli dizi: ' + secret.map(i => '●').join('');
+        revealSecret();
+        return;
+      }
+      render();
+      statusEl.className = 'status info';
+      statusEl.textContent = `${sc.black} beyaz, ${sc.white} gri. Devam et!`;
+    }
+
+    function revealSecret() {
+      const banner = document.createElement('div');
+      banner.className = 'pegs';
+      banner.style.marginTop = '8px';
+      secret.forEach(v => { const p = document.createElement('div'); p.className='peg'; p.style.background = PALETTE[v]; banner.appendChild(p); });
+      statusEl.after(banner);
+    }
+
+    function aiGuess() {
+      if (gameOver) return;
+      // build all candidates consistent with previous feedback
+      const prior = [];
+      for (let r = 0; r < currentRow; r++) if (rowGuesses[r].fbScore) prior.push({ g: rowGuesses[r].slice(0, LEN), s: rowGuesses[r].fbScore });
+      const total = Math.pow(PALETTE.length, LEN);
+      let pick = null;
+      for (let n = 0; n < total; n++) {
+        const cand = []; let x = n;
+        for (let i = 0; i < LEN; i++) { cand.push(x % PALETTE.length); x = Math.floor(x / PALETTE.length); }
+        const ok = prior.every(p => { const sc = score(p.g, cand); return sc.black === p.s.black && sc.white === p.s.white; });
+        if (ok) { pick = cand; break; }
+      }
+      if (!pick) return;
+      rowGuesses[currentRow] = pick.slice();
+      rowGuesses[currentRow].fbScore = undefined;
+      render();
+      statusEl.className = 'status info';
+      statusEl.textContent = '🤖 YZ, ipuçlarına uyan bir tahmin yerleştirdi. "Tahmin Et"e bas.';
+    }
+
+    function newGame() {
+      secret = randomCode();
+      rowGuesses = Array.from({ length: MAX }, () => { const a = Array(LEN).fill(-1); a.fbScore = undefined; return a; });
+      currentRow = 0; selectedColor = 0; gameOver = false;
+      leftEl.textContent = MAX;
+      statusEl.className = 'status info'; statusEl.textContent = 'Gizli 4 renkli diziyi tahmin et!';
+      const banner = statusEl.nextElementSibling;
+      if (banner && banner.classList.contains('pegs')) banner.remove();
+      buildColors(); render();
+    }
+
+    document.getElementById('guessBtn').onclick = guess;
+    document.getElementById('clearRow').onclick = () => { if (!gameOver) { rowGuesses[currentRow] = Array(LEN).fill(-1); render(); } };
+    document.getElementById('newBtn').onclick = newGame;
+    document.getElementById('aiBtn').onclick = aiGuess;
+
+    newGame();
+  </script>
+</body>
+</html>

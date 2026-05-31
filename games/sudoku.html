@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sudoku | Yapay Zeka Oyunları</title>
+  <link rel="stylesheet" href="../assets/css/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔢</text></svg>" />
+  <style>
+    .sudoku {
+      display: grid;
+      grid-template-columns: repeat(9, 1fr);
+      background: #0b1220;
+      border: 3px solid #475569;
+      border-radius: 10px;
+      overflow: hidden;
+      width: min(92vw, 460px);
+      aspect-ratio: 1;
+    }
+    .scell {
+      display: flex; align-items: center; justify-content: center;
+      font-size: clamp(1rem, 4.5vw, 1.5rem); font-weight: 700;
+      border: 1px solid rgba(148,163,184,0.18);
+      cursor: pointer; user-select: none; transition: background 0.15s;
+      color: #93c5fd;
+    }
+    .scell.fixed { color: #e2e8f0; background: rgba(148,163,184,0.08); cursor: default; }
+    .scell.selected { background: rgba(99,102,241,0.4); }
+    .scell.same { background: rgba(99,102,241,0.15); }
+    .scell.error { color: var(--danger); background: rgba(239,68,68,0.18); }
+    .scell.b-right { border-right: 2px solid #64748b; }
+    .scell.b-bottom { border-bottom: 2px solid #64748b; }
+    .numpad { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; width: min(92vw, 460px); }
+    .numpad button {
+      padding: 14px 0; font-size: 1.2rem; font-weight: 700; border-radius: 10px;
+      border: 1px solid var(--card-border); background: var(--card); color: var(--text); cursor: pointer;
+    }
+    .numpad button:hover { background: rgba(99,102,241,0.25); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="topbar">
+      <a class="back-btn" href="../index.html">← Ana Sayfa</a>
+      <h1 class="game-title">🔢 Sudoku</h1>
+      <span></span>
+    </div>
+
+    <div class="game-layout with-side">
+      <div class="panel">
+        <div class="stage">
+          <div class="status info" id="status">Bir hücre seç ve rakam gir.</div>
+          <div class="stat-row">
+            <span>Zorluk: <b id="diff">Orta</b></span>
+            <span>Boş hücre: <b id="empty">0</b></span>
+          </div>
+          <div class="sudoku" id="board"></div>
+          <div class="numpad" id="numpad"></div>
+          <div class="controls">
+            <button class="btn" id="newBtn">🔀 Yeni Bulmaca</button>
+            <button class="btn accent" id="hintBtn">💡 İpucu</button>
+            <button class="btn pink" id="solveBtn">🤖 Çöz</button>
+          </div>
+        </div>
+      </div>
+
+      <aside class="panel">
+        <h3>Nasıl Oynanır?</h3>
+        <ul>
+          <li>Her satır, her sütun ve her 3x3 kutuda 1–9 rakamları yalnızca bir kez bulunmalı.</li>
+          <li>Boş bir hücreye tıkla, ardından rakam tuşuna bas (veya klavyeden 1–9).</li>
+          <li>Silmek için ✕ tuşunu kullan.</li>
+        </ul>
+        <div class="hint-box">
+          <b>🧠 YZ Bağlantısı:</b> Sudoku bir <b>Kısıt Sağlama Problemidir (CSP)</b>.
+          Yapay zeka bunu <b>geri izleme (backtracking)</b> ile çözer: bir rakam dener, kuralı bozarsa geri alır.
+          "Çöz" düğmesi tam olarak bu algoritmayı çalıştırır.
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    let solution, puzzle, current, fixed, selected = null;
+    const boardEl = document.getElementById('board');
+    const statusEl = document.getElementById('status');
+    const emptyEl = document.getElementById('empty');
+
+    function emptyGrid() { return Array.from({length:9}, () => Array(9).fill(0)); }
+
+    function canPlace(g, r, c, n) {
+      for (let i = 0; i < 9; i++) if (g[r][i] === n || g[i][c] === n) return false;
+      const br = Math.floor(r/3)*3, bc = Math.floor(c/3)*3;
+      for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) if (g[br+i][bc+j] === n) return false;
+      return true;
+    }
+
+    function solve(g) {
+      for (let r = 0; r < 9; r++) for (let c = 0; c < 9; c++) {
+        if (g[r][c] === 0) {
+          const nums = [1,2,3,4,5,6,7,8,9].sort(() => Math.random()-0.5);
+          for (const n of nums) {
+            if (canPlace(g, r, c, n)) { g[r][c] = n; if (solve(g)) return true; g[r][c] = 0; }
+          }
+          return false;
+        }
+      }
+      return true;
+    }
+
+    function generate(holes) {
+      solution = emptyGrid(); solve(solution);
+      puzzle = solution.map(row => [...row]);
+      let removed = 0;
+      while (removed < holes) {
+        const r = Math.floor(Math.random()*9), c = Math.floor(Math.random()*9);
+        if (puzzle[r][c] !== 0) { puzzle[r][c] = 0; removed++; }
+      }
+      current = puzzle.map(row => [...row]);
+      fixed = puzzle.map(row => row.map(v => v !== 0));
+    }
+
+    function countEmpty() {
+      let n = 0; for (let r=0;r<9;r++) for (let c=0;c<9;c++) if (current[r][c]===0) n++;
+      return n;
+    }
+
+    function render() {
+      boardEl.innerHTML = '';
+      const selVal = selected ? current[selected.r][selected.c] : 0;
+      for (let r = 0; r < 9; r++) for (let c = 0; c < 9; c++) {
+        const d = document.createElement('div');
+        d.className = 'scell';
+        if (c === 2 || c === 5) d.classList.add('b-right');
+        if (r === 2 || r === 5) d.classList.add('b-bottom');
+        if (fixed[r][c]) d.classList.add('fixed');
+        const v = current[r][c];
+        d.textContent = v || '';
+        if (selected && selected.r === r && selected.c === c) d.classList.add('selected');
+        else if (v && v === selVal) d.classList.add('same');
+        if (v && !fixed[r][c] && v !== solution[r][c]) d.classList.add('error');
+        d.onclick = () => { if (!fixed[r][c]) { selected = {r, c}; render(); } };
+        boardEl.appendChild(d);
+      }
+      emptyEl.textContent = countEmpty();
+    }
+
+    function place(n) {
+      if (!selected) { statusEl.className='status info'; statusEl.textContent='Önce bir hücre seç.'; return; }
+      const {r, c} = selected;
+      if (fixed[r][c]) return;
+      current[r][c] = n;
+      render();
+      checkWin();
+    }
+
+    function checkWin() {
+      if (countEmpty() > 0) return;
+      for (let r=0;r<9;r++) for (let c=0;c<9;c++) if (current[r][c] !== solution[r][c]) {
+        statusEl.className='status lose'; statusEl.textContent='Tablo dolu ama bazı hatalar var (kırmızılar).'; return;
+      }
+      statusEl.className='status win'; statusEl.textContent='🏆 Tebrikler! Sudoku\u0027yu çözdün!';
+    }
+
+    function buildNumpad() {
+      const np = document.getElementById('numpad'); np.innerHTML = '';
+      for (let n = 1; n <= 9; n++) { const b = document.createElement('button'); b.textContent = n; b.onclick = () => place(n); np.appendChild(b); }
+      const x = document.createElement('button'); x.textContent = '✕'; x.onclick = () => place(0); np.appendChild(x);
+    }
+
+    function newGame() {
+      generate(45);
+      selected = null;
+      statusEl.className='status info'; statusEl.textContent='Bir hücre seç ve rakam gir.';
+      render();
+    }
+
+    document.getElementById('newBtn').onclick = newGame;
+    document.getElementById('solveBtn').onclick = () => {
+      current = solution.map(row => [...row]); render();
+      statusEl.className='status info'; statusEl.textContent='🤖 Geri izleme algoritması çözdü.';
+    };
+    document.getElementById('hintBtn').onclick = () => {
+      const empties = [];
+      for (let r=0;r<9;r++) for (let c=0;c<9;c++) if (current[r][c] !== solution[r][c]) empties.push({r,c});
+      if (!empties.length) return;
+      const {r,c} = empties[Math.floor(Math.random()*empties.length)];
+      current[r][c] = solution[r][c]; selected = {r,c}; render(); checkWin();
+      statusEl.className='status info'; statusEl.textContent='💡 Bir hücre dolduruldu.';
+    };
+    document.addEventListener('keydown', e => {
+      if (e.key >= '1' && e.key <= '9') place(Number(e.key));
+      else if (e.key === '0' || e.key === 'Backspace' || e.key === 'Delete') place(0);
+    });
+
+    buildNumpad();
+    newGame();
+  </script>
+</body>
+</html>

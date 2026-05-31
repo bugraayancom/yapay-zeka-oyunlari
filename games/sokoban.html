@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sokoban: Kutu İtme | Yapay Zeka Oyunları</title>
+  <link rel="stylesheet" href="../assets/css/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📦</text></svg>" />
+  <style>
+    .soko {
+      display: grid; gap: 2px; background: #0b1220; padding: 8px; border-radius: 14px;
+      box-shadow: var(--shadow);
+    }
+    .sk { width: 46px; height: 46px; display:flex; align-items:center; justify-content:center; font-size: 1.7rem; border-radius: 6px; }
+    .sk.wall { background: #334155; }
+    .sk.floor { background: #1e293b; }
+    .sk.target { background: rgba(34,197,94,0.18); box-shadow: inset 0 0 0 2px rgba(34,197,94,0.5); }
+    .dpad {
+      display: grid; grid-template-columns: repeat(3, 56px); grid-template-rows: repeat(3, 56px); gap: 8px; margin-top: 6px;
+    }
+    .dpad button { font-size: 1.4rem; border: none; border-radius: 12px; cursor: pointer; background: var(--card); border: 1px solid var(--card-border); color: var(--text); }
+    .dpad button:hover { background: rgba(99,102,241,0.25); }
+    .dpad .up { grid-column: 2; grid-row: 1; } .dpad .left { grid-column: 1; grid-row: 2; }
+    .dpad .down { grid-column: 2; grid-row: 3; } .dpad .right { grid-column: 3; grid-row: 2; }
+    .levelrow { display: flex; gap: 8px; }
+    .levelrow button { width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--card-border); background: var(--card); color: var(--text-dim); cursor: pointer; font-weight: 700; }
+    .levelrow button.active { background: rgba(99,102,241,0.3); color: #fff; border-color: var(--accent); }
+    @media (max-width: 520px) { .sk { width: 34px; height: 34px; font-size: 1.3rem; } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="topbar">
+      <a class="back-btn" href="../index.html">← Ana Sayfa</a>
+      <h1 class="game-title">📦 Sokoban: Kutu İtme</h1>
+      <span></span>
+    </div>
+
+    <div class="game-layout with-side">
+      <div class="panel">
+        <div class="stage">
+          <div class="levelrow" id="levelrow"></div>
+          <div class="status info" id="status">Tüm kutuları 🎯 hedeflere it!</div>
+          <div class="stat-row"><span>Hamle: <b id="moves">0</b></span><span>İtme: <b id="pushes">0</b></span></div>
+          <div class="soko" id="board"></div>
+          <div class="dpad">
+            <button class="up" data-dir="up">▲</button>
+            <button class="left" data-dir="left">◀</button>
+            <button class="down" data-dir="down">▼</button>
+            <button class="right" data-dir="right">▶</button>
+          </div>
+          <div class="controls">
+            <button class="btn secondary" id="undoBtn">↩ Geri Al</button>
+            <button class="btn" id="resetBtn">↺ Baştan</button>
+          </div>
+        </div>
+      </div>
+
+      <aside class="panel">
+        <h3>Nasıl Oynanır?</h3>
+        <ul>
+          <li>🧑 oyuncuyu ok tuşları / WASD veya alttaki tuşlarla hareket ettir.</li>
+          <li>📦 kutuları <b>iterek</b> 🎯 hedeflere yerleştir (kutuları çekemezsin!).</li>
+          <li>Bir kutuyu köşeye sıkıştırırsan "Geri Al" veya "Baştan" düğmesini kullan.</li>
+        </ul>
+        <div class="hint-box">
+          <b>🧠 YZ Bağlantısı:</b> Sokoban bir <b>otomatik planlama</b> problemidir ve PSPACE-zor olduğu kanıtlanmıştır!
+          Yapay zeka, hedefe ulaşmak için doğru hamle sırasını <b>durum uzayı araması</b> ile planlar.
+          Geri alınamaz hatalar (köşeye sıkışmış kutu) planlamanın neden zor olduğunu gösterir.
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    const LEVELS = [
+      [
+        "#######",
+        "#@$  .#",
+        "#######",
+      ],
+      [
+        "#######",
+        "#   . #",
+        "# $   #",
+        "# @   #",
+        "#######",
+      ],
+      [
+        "########",
+        "#  ..  #",
+        "#  $$  #",
+        "#  @   #",
+        "########",
+      ],
+      [
+        "########",
+        "#  #   #",
+        "# .$ . #",
+        "# $@$  #",
+        "# .  . #",
+        "#  $   #",
+        "########",
+      ],
+    ];
+
+    let walls, targets, boxes, player, rows, cols, moves, pushes, history, levelIdx = 0;
+    const boardEl = document.getElementById('board');
+    const statusEl = document.getElementById('status');
+
+    function load(idx) {
+      levelIdx = idx;
+      const map = LEVELS[idx];
+      rows = map.length; cols = Math.max(...map.map(r => r.length));
+      walls = new Set(); targets = new Set(); boxes = new Set();
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < map[r].length; c++) {
+          const ch = map[r][c], key = r + ',' + c;
+          if (ch === '#') walls.add(key);
+          if (ch === '.' || ch === '*' || ch === '+') targets.add(key);
+          if (ch === '$' || ch === '*') boxes.add(key);
+          if (ch === '@' || ch === '+') player = { r, c };
+        }
+      }
+      moves = 0; pushes = 0; history = [];
+      statusEl.className = 'status info'; statusEl.textContent = 'Tüm kutuları 🎯 hedeflere it!';
+      buildLevelRow();
+      render();
+    }
+
+    function render() {
+      boardEl.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+      boardEl.innerHTML = '';
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+        const key = r + ',' + c;
+        const d = document.createElement('div');
+        d.className = 'sk ' + (walls.has(key) ? 'wall' : targets.has(key) ? 'target' : 'floor');
+        if (player.r === r && player.c === c) d.textContent = '🧑';
+        else if (boxes.has(key)) d.textContent = targets.has(key) ? '✅' : '📦';
+        else if (targets.has(key)) d.textContent = '🎯';
+        boardEl.appendChild(d);
+      }
+      document.getElementById('moves').textContent = moves;
+      document.getElementById('pushes').textContent = pushes;
+    }
+
+    function won() { return [...targets].every(t => boxes.has(t)); }
+
+    function move(dir) {
+      if (won()) return;
+      const delta = { up:[-1,0], down:[1,0], left:[0,-1], right:[0,1] }[dir];
+      const nr = player.r + delta[0], nc = player.c + delta[1], nKey = nr + ',' + nc;
+      if (walls.has(nKey)) return;
+      const snapshot = { player: {...player}, boxes: new Set(boxes), moves, pushes };
+      if (boxes.has(nKey)) {
+        const br = nr + delta[0], bc = nc + delta[1], bKey = br + ',' + bc;
+        if (walls.has(bKey) || boxes.has(bKey)) return;
+        boxes.delete(nKey); boxes.add(bKey); pushes++;
+      }
+      history.push(snapshot);
+      player = { r: nr, c: nc };
+      moves++;
+      render();
+      if (won()) {
+        statusEl.className = 'status win';
+        statusEl.textContent = levelIdx < LEVELS.length - 1
+          ? `🏆 Bölüm tamam! ${moves} hamle. Sıradaki bölümü dene →`
+          : `🏆 Tebrikler! Tüm bölümleri bitirdin!`;
+      }
+    }
+
+    function buildLevelRow() {
+      const lr = document.getElementById('levelrow'); lr.innerHTML = '';
+      LEVELS.forEach((_, i) => {
+        const b = document.createElement('button');
+        b.textContent = i + 1;
+        if (i === levelIdx) b.classList.add('active');
+        b.onclick = () => load(i);
+        lr.appendChild(b);
+      });
+    }
+
+    document.getElementById('resetBtn').onclick = () => load(levelIdx);
+    document.getElementById('undoBtn').onclick = () => {
+      const s = history.pop();
+      if (!s) return;
+      player = s.player; boxes = s.boxes; moves = s.moves; pushes = s.pushes;
+      statusEl.className = 'status info'; statusEl.textContent = 'Geri alındı.';
+      render();
+    };
+    document.querySelectorAll('.dpad button').forEach(b => b.onclick = () => move(b.dataset.dir));
+    document.addEventListener('keydown', e => {
+      const map = { ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right', w:'up', s:'down', a:'left', d:'right' };
+      if (map[e.key]) { e.preventDefault(); move(map[e.key]); }
+    });
+
+    load(0);
+  </script>
+</body>
+</html>
